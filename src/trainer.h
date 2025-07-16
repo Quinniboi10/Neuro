@@ -3,6 +3,7 @@
 #include <fmt/fmt/format.h>
 
 #include "dataloader.h"
+#include "progbar.h"
 #include "optim.h"
 
 #include <string_view>
@@ -58,14 +59,14 @@ struct Trainer {
 		return grads;
 	}
 
-	static void applyGradients(Network& net, const usize batchSize, const MultiVector<float, 3>& weightGradAccum, const MultiVector<float, 2>& biasGradAccum) {
+	static void applyGradients(const Network& net, optimizers::Optimizer& optim, const usize batchSize, const MultiVector<float, 3>& weightGradAccum, const MultiVector<float, 2>& biasGradAccum) {
 		// Apply gradients to weights and biases
 		for (usize l = 1; l < net.layers.size(); l++) {
-			Layer& currLayer = net.layers[l];
+			const Layer& currLayer = net.layers[l];
 			for (usize i = 0; i < currLayer.size; i++) {
 				for (usize j = 0; j < currLayer.weights[i].size(); j++)
-					currLayer.weightGradients[i][j] += weightGradAccum[l - 1][i][j] / batchSize;
-				currLayer.biasGradients[i] += biasGradAccum[l - 1][i] / batchSize;
+					optim.weightGradients[l][i][j] += weightGradAccum[l - 1][i][j] / batchSize;
+				optim.biasGradients[l][i] += biasGradAccum[l - 1][i] / batchSize;
 			}
 		}
 	}
@@ -73,9 +74,14 @@ struct Trainer {
 	static void train(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optim, usize batchSize, usize epochs) {
 		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
 
+		// Hide cursor
+		cout << "\033[?25l";
+
 		cout << "Training for " << batchesPerEpoch * epochs << " batches with " << batchesPerEpoch << " batches per epoch" << endl;
 
 		cout << "Epoch    Train loss    Test loss     Train accuracy     Test accuracy" << endl;
+		cout << endl;
+		cout << endl;
 
 		const auto getTestLossAcc = [&]() {
 			float loss = 0;
@@ -100,6 +106,8 @@ struct Trainer {
 			};
 
 		for (usize epoch = 0; epoch < epochs; epoch++) {
+			ProgressBar progressBar{};
+
 			u64 batch = 0;
 
 			float trainLossSum = 0.0f;
@@ -116,7 +124,7 @@ struct Trainer {
 					biasGradAccum.push_back(vector<float>(net.layers[l].size, 0.0f));
 				}
 
-				optimizers::zeroGrad(net);
+				optim.zeroGrad();
 				dataLoader.loadBatch(batchSize);
 
 				for (usize b = 0; b < batchSize; b++) {
@@ -151,8 +159,8 @@ struct Trainer {
 						}
 					}
 				}
-				applyGradients(net, batchSize, weightGradAccum, biasGradAccum);
-				optimizers::clipGrad(net, 1);
+				applyGradients(net, optim, batchSize, weightGradAccum, biasGradAccum);
+				optim.clipGrad(1);
 				optim.step();
 				batch++;
 
@@ -160,8 +168,11 @@ struct Trainer {
 				float trainLoss = trainLossSum / (trainTotal ? trainTotal : 1);
 				float trainAcc = trainCorrect / static_cast<float>(trainTotal ? trainTotal : 1);
 
-
-				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << "\r" << std::flush;
+				cursor::up();
+				cursor::up();
+				cursor::begin();
+				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << "\n";
+				cout << progressBar.report(batch, batchesPerEpoch, 63) << endl;
 			}
 
 			float trainLoss = trainLossSum / (trainTotal ? trainTotal : 1);
@@ -169,7 +180,15 @@ struct Trainer {
 
 			auto testLA = getTestLossAcc();
 
+			cursor::up();
+			cursor::clear();
+			cursor::up();
 			cout << fmt::format("{:>5L}{:>14.5f}{:>13.5f}{:>18.2f}%{:>17.2f}%", epoch, trainLoss, testLA.first, trainAcc * 100, testLA.second * 100) << endl;
+			cout << endl;
+			cout << endl;
 		}
+
+		// Show cursor
+		cout << "\033[?25h";
 	}
 };

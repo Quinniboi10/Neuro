@@ -3,73 +3,134 @@
 #include "network.h"
 
 namespace optimizers {
-    static void zeroGrad(Network& net) {
-        for (Layer& l : net.layers) {
-            for (vector<float>& row : l.weightGradients)
-                for (float& grad : row)
-                    grad = 0;
-
-            for (float& grad : l.biasGradients)
-                grad = 0;
-        }
-    }
-
-    static void clipGrad(Network& net, float maxNorm) {
-        // Compute total norm of all gradients (weights and biases) across all layers
-        float totalNormSq = 0.0f;
-        for (const auto& layer : net.layers) {
-            // Weights gradients
-            for (const auto& row : layer.weightGradients)
-                for (float wg : row)
-                    totalNormSq += wg * wg;
-            // Bias gradients
-            for (float bg : layer.biasGradients)
-                totalNormSq += bg * bg;
-        }
-        float totalNorm = std::sqrt(totalNormSq);
-
-        // Scale all gradients if needed
-        if (totalNorm > maxNorm && totalNorm > 0.0f) {
-            float scale = maxNorm / totalNorm;
-            for (auto& layer : net.layers) {
-                // Scale weight gradients
-                for (auto& row : layer.weightGradients)
-                    for (float& wg : row)
-                        wg *= scale;
-                // Scale bias gradients
-                for (float& bg : layer.biasGradients)
-                    bg *= scale;
-            }
-        }
-    }
-
     struct Optimizer {
         Network& net;
         float lr;
         float momentum;
 
-        Optimizer(Network& net, float lr, float momentum = 0.9f) : net(net), lr(lr), momentum(momentum) {}
+        MultiVector<float, 3> weightGradients;
+        MultiVector<float, 2> biasGradients;
+
+        Optimizer(Network& net, float lr, float momentum = 0.9f) : net(net), lr(lr), momentum(momentum) {
+            for (Layer& l : net.layers) {
+                if (!l.weights.empty() && !l.weights[0].empty())
+                    weightGradients.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
+                else
+                    weightGradients.emplace_back();
+                biasGradients.emplace_back(l.biases.size());
+            }
+        }
+
+        void zeroGrad() {
+            deepFill(weightGradients, 0);
+            deepFill(biasGradients, 0);
+        }
+
+        void clipGrad(float maxNorm) {
+            // Compute total norm of all gradients (weights and biases) across all layers
+            float totalNormSq = 0.0f;
+            for (const auto& layerGradients : weightGradients) {
+                // Weights gradients
+                for (const auto& row : layerGradients)
+                    for (float wg : row)
+                        totalNormSq += wg * wg;
+            }
+            for (const auto& layerGradients : biasGradients) {
+                // Bias gradients
+                for (float bg : layerGradients)
+                    totalNormSq += bg * bg;
+            }
+
+            float totalNorm = std::sqrt(totalNormSq);
+
+            // Scale all gradients if needed
+            if (totalNorm > maxNorm && totalNorm > 0.0f) {
+                float scale = maxNorm / totalNorm;
+                for (const auto& layerGradients : weightGradients) {
+                    // Weights gradients
+                    for (const auto& row : layerGradients)
+                        for (float wg : row)
+                            wg *= scale;
+                }
+                for (const auto& layerGradients : biasGradients) {
+                    // Bias gradients
+                    for (float bg : layerGradients)
+                        bg *= scale;
+                }
+            }
+        }
 
         virtual void step() = 0;
     };
 
     struct SGD : Optimizer {
-        using Optimizer::Optimizer;
+        MultiVector<float, 3> weightVelocities;
+        MultiVector<float, 2> biasVelocities;
+
+        SGD(Network& net, float lr, float momentum = 0.9f) : Optimizer(net, lr, momentum) {
+            for (Layer& l : net.layers) {
+                if (!l.weights.empty() && !l.weights[0].empty())
+                    weightVelocities.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
+                else
+                    weightVelocities.emplace_back();
+                biasVelocities.emplace_back(l.biases.size());
+            }
+        }
 
         inline void step() override {
-            for (Layer& l : net.layers) {
+            for (usize lIdx = 1; lIdx < net.layers.size(); lIdx++) {
+                Layer& l = net.layers[lIdx];
                 // Update weights with momentum
                 for (usize i = 0; i < l.weights.size(); i++) {
                     for (usize j = 0; j < l.weights[i].size(); j++) {
-                        l.weightVelocities[i][j] = momentum * l.weightVelocities[i][j] - lr * l.weightGradients[i][j];
-                        l.weights[i][j] += l.weightVelocities[i][j];
+                        weightVelocities[lIdx][i][j] = momentum * weightVelocities[lIdx][i][j] - lr * weightGradients[lIdx][i][j];
+                        l.weights[i][j] += weightVelocities[lIdx][i][j];
                     }
                 }
 
                 // Update biases with momentum
                 for (usize i = 0; i < l.biases.size(); i++) {
-                    l.biasVelocities[i] = momentum * l.biasVelocities[i] - lr * l.biasGradients[i];
-                    l.biases[i] += l.biasVelocities[i];
+                    biasVelocities[lIdx][i] = momentum * biasVelocities[lIdx][i] - lr * biasGradients[lIdx][i];
+                    l.biases[i] += biasVelocities[lIdx][i];
+                }
+            }
+        }
+    };
+
+    struct RMSprop : Optimizer {
+        float beta;
+        float epsilon;
+        MultiVector<float, 3> weightSqGrads;
+        MultiVector<float, 2> biasSqGrads;
+
+        RMSprop(Network& net, float lr, float momentum = 0.9f, float beta = 0.9f, float epsilon = 1e-8f) : Optimizer(net, lr, momentum), beta(beta), epsilon(epsilon) {
+            for (Layer& l : net.layers) {
+                if (!l.weights.empty() && !l.weights[0].empty())
+                    weightSqGrads.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
+                else
+                    weightSqGrads.emplace_back();
+                biasSqGrads.emplace_back(l.biases.size());
+            }
+        }
+
+        inline void step() override {
+            for (usize lIdx = 0; lIdx < net.layers.size(); ++lIdx) {
+                Layer& l = net.layers[lIdx];
+
+                // Update weights
+                for (usize i = 0; i < l.weights.size(); ++i) {
+                    for (usize j = 0; j < l.weights[i].size(); ++j) {
+                        weightSqGrads[lIdx][i][j] = beta * weightSqGrads[lIdx][i][j] + (1.0f - beta) * weightGradients[lIdx][i][j] * weightGradients[lIdx][i][j];
+
+                        l.weights[i][j] -= lr * weightGradients[lIdx][i][j] / (std::sqrt(weightSqGrads[lIdx][i][j]) + epsilon);
+                    }
+                }
+
+                // Update biases
+                for (usize i = 0; i < l.biases.size(); ++i) {
+                    biasSqGrads[lIdx][i] = beta * biasSqGrads[lIdx][i] + (1.0f - beta) * biasGradients[lIdx][i] * biasGradients[lIdx][i];
+
+                    l.biases[i] -= lr * biasGradients[lIdx][i] / (std::sqrt(biasSqGrads[lIdx][i]) + epsilon);
                 }
             }
         }

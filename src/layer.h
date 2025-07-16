@@ -6,11 +6,6 @@ struct Layer {
 	MultiVector<float, 2> weights; // Indexed [currNeuron][prevLayerNeuron]
 	vector<float> biases;
 
-	MultiVector<float, 2> weightGradients;
-	vector<float> biasGradients;
-	MultiVector<float, 2> weightVelocities;
-	vector<float> biasVelocities;
-
 	vector<float> preActivation;
 	vector<float> activated;
 
@@ -30,9 +25,7 @@ struct Layer {
 		this->activation = activation;
 		this->size = size;
 
-		biases.resize(size);
-		biasGradients.resize(size);
-		biasVelocities.resize(size);
+		biases.resize(size);\
 
 		preActivation.resize(size);
 		activated.resize(size);
@@ -41,12 +34,6 @@ struct Layer {
 	void init(const Layer& previous) {
 		weights.resize(size);
 		for (vector<float>& w : weights)
-			w.resize(previous.size);
-		weightGradients.resize(size);
-		for (vector<float>& w : weightGradients)
-			w.resize(previous.size);
-		weightVelocities.resize(size);
-		for (vector<float>& w : weightVelocities)
 			w.resize(previous.size);
 
 	}

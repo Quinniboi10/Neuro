@@ -35,6 +35,7 @@ using usize = size_t;
 using std::vector;
 using std::string;
 using std::array;
+using std::flush;
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -151,6 +152,13 @@ namespace activations {
         default: exit("Unsupported activation on non-output layer: " + activNames[act], -1);
         }
     }
+}
+
+namespace cursor {
+    static void clear() { cout << "\033[2K\r"; }
+    static void up() { cout << "\033[A"; }
+    static void down() { cout << "\033[B"; }
+    static void begin() { cout << "\033[1G"; }
 }
 
 namespace internal {
