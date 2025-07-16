@@ -1,0 +1,12 @@
+# VS Code config
+.vscode
+
+# C-Lion config
+.idea
+
+# Builds
+*.o
+Neuro.*
+
+# Datasets for testing
+datasets
