@@ -70,16 +70,17 @@ struct Trainer {
 		}
 	}
 
-	static void train(Network& net, DataLoader& dataLoader, auto& optim, usize batchSize, usize epochs) {
-		u64 batches = dataLoader.numSamples * epochs / batchSize;
+	static void train(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optim, usize batchSize, usize epochs) {
+		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
 
-		cout << "Training for " << batches << " batches" << endl;
+		cout << "Training for " << batchesPerEpoch * epochs << " batches with " << batchesPerEpoch << " batches per epoch" << endl;
 
-		cout << "Batch        Loss        Accuracy" << endl;
+		cout << "Epoch    Train loss    Test loss     Train accuracy     Test accuracy" << endl;
 
-		const auto getLossAcc = [&]() {
+		const auto getTestLossAcc = [&]() {
 			float loss = 0;
 			usize numCorrect = 0;
+			dataLoader.loadTestSet();
 			usize testSize = dataLoader.batchData.size();
 			while (dataLoader.hasNext()) {
 				DataPoint data = dataLoader.next();
@@ -98,46 +99,77 @@ struct Trainer {
 			return std::pair<float, float>{ loss / (testSize ? testSize : 1), numCorrect / static_cast<float>(testSize ? testSize : 1) };
 			};
 
-		u64 batch = 0;
-		while (batch < batches) {
-			MultiVector<float, 3> weightGradAccum;
-			MultiVector<float, 2> biasGradAccum;
-			for (usize l = 1; l < net.layers.size(); l++) {
-				weightGradAccum.push_back(
-					vector<vector<float>>(net.layers[l].size, vector<float>(net.layers[l - 1].size, 0.0f))
-				);
-				biasGradAccum.push_back(vector<float>(net.layers[l].size, 0.0f));
-			}
+		for (usize epoch = 0; epoch < epochs; epoch++) {
+			u64 batch = 0;
 
-			optim.zeroGrad();
+			float trainLossSum = 0.0f;
+			usize trainCorrect = 0;
+			usize trainTotal = 0;
 
-			dataLoader.loadTestSet();
-			auto la = getLossAcc();
-			dataLoader.loadBatch(batchSize);
-			cout << fmt::format("{:>5L}{:>12.5f}{:>15.2f}%", batch, la.first, la.second * 100) << endl;
-
-			for (usize b = 0; b < batchSize; b++) {
-				DataPoint data = dataLoader.next();
-				net.load(data);
-				net.forwardPass();
-				auto gradients = backward(net, data.target);
-
-				// Accumulate gradients
+			while (batch < batchesPerEpoch) {
+				MultiVector<float, 3> weightGradAccum;
+				MultiVector<float, 2> biasGradAccum;
 				for (usize l = 1; l < net.layers.size(); l++) {
-					const Layer& prevLayer = net.layers[l - 1];
-					for (usize i = 0; i < net.layers[l].size; i++) {
-						for (usize j = 0; j < prevLayer.size; j++) {
-							weightGradAccum[l - 1][i][j] += gradients[l][i] * prevLayer.activated[j];
+					weightGradAccum.push_back(
+						vector<vector<float>>(net.layers[l].size, vector<float>(net.layers[l - 1].size, 0.0f))
+					);
+					biasGradAccum.push_back(vector<float>(net.layers[l].size, 0.0f));
+				}
+
+				optimizers::zeroGrad(net);
+				dataLoader.loadBatch(batchSize);
+
+				for (usize b = 0; b < batchSize; b++) {
+					DataPoint data = dataLoader.next();
+					net.load(data);
+					net.forwardPass();
+
+					// Accumulate training loss
+					float loss = Trainer::mse(net.layers.back(), data.target);
+					trainLossSum += loss;
+
+					// Accumulate training accuracy
+					usize guess = 0, goal = 0;
+					for (usize i = 0; i < data.target.size(); i++) {
+						if (net.layers.back().activated[i] > net.layers.back().activated[guess])
+							guess = i;
+						if (data.target[i] > data.target[goal])
+							goal = i;
+					}
+					trainCorrect += (guess == goal);
+					trainTotal += 1;
+
+					// Backward + accumulate gradients
+					auto gradients = backward(net, data.target);
+					for (usize l = 1; l < net.layers.size(); l++) {
+						const Layer& prevLayer = net.layers[l - 1];
+						for (usize i = 0; i < net.layers[l].size; i++) {
+							for (usize j = 0; j < prevLayer.size; j++) {
+								weightGradAccum[l - 1][i][j] += gradients[l][i] * prevLayer.activated[j];
+							}
+							biasGradAccum[l - 1][i] += gradients[l][i];
 						}
-						biasGradAccum[l - 1][i] += gradients[l][i];
 					}
 				}
+				applyGradients(net, batchSize, weightGradAccum, biasGradAccum);
+				optimizers::clipGrad(net, 1);
+				optim.step();
+				batch++;
+
+				// Update trainLoss/trainAcc after each batch
+				float trainLoss = trainLossSum / (trainTotal ? trainTotal : 1);
+				float trainAcc = trainCorrect / static_cast<float>(trainTotal ? trainTotal : 1);
+
+
+				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << "\r" << std::flush;
 			}
 
-			applyGradients(net, batchSize, weightGradAccum, biasGradAccum);
-			optim.clipGrad(1);
-			optim.step();
-			batch++;
+			float trainLoss = trainLossSum / (trainTotal ? trainTotal : 1);
+			float trainAcc = trainCorrect / static_cast<float>(trainTotal ? trainTotal : 1);
+
+			auto testLA = getTestLossAcc();
+
+			cout << fmt::format("{:>5L}{:>14.5f}{:>13.5f}{:>18.2f}%{:>17.2f}%", epoch, trainLoss, testLA.first, trainAcc * 100, testLA.second * 100) << endl;
 		}
 	}
 };

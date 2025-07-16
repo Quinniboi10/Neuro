@@ -8,6 +8,8 @@ struct Layer {
 
 	MultiVector<float, 2> weightGradients;
 	vector<float> biasGradients;
+	MultiVector<float, 2> weightVelocities;
+	vector<float> biasVelocities;
 
 	vector<float> preActivation;
 	vector<float> activated;
@@ -30,18 +32,23 @@ struct Layer {
 
 		biases.resize(size);
 		biasGradients.resize(size);
+		biasVelocities.resize(size);
 
 		preActivation.resize(size);
 		activated.resize(size);
 	}
 
-	void construct(const Layer& previous) {
+	void init(const Layer& previous) {
 		weights.resize(size);
 		for (vector<float>& w : weights)
 			w.resize(previous.size);
 		weightGradients.resize(size);
 		for (vector<float>& w : weightGradients)
 			w.resize(previous.size);
+		weightVelocities.resize(size);
+		for (vector<float>& w : weightVelocities)
+			w.resize(previous.size);
+
 	}
 
 	void forward(const Layer& previous) {
@@ -51,17 +58,6 @@ struct Layer {
 				preActivation[curr] += previous.activated[prev] * weights[curr][prev];
 
 		activated = activations::activate(activation, preActivation);
-	}
-
-	void learn(float lr) {
-		// Update weights
-		for (usize i = 0; i < weights.size(); i++)
-			for (usize j = 0; j < weights[i].size(); j++)
-				weights[i][j] -= lr * weightGradients[i][j];
-
-		// Update biases
-		for (usize i = 0; i < biases.size(); i++)
-			biases[i] -= lr * biasGradients[i];
 	}
 };
 

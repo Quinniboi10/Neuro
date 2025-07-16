@@ -18,7 +18,7 @@ struct Network {
 
         // Resize all the weight vectors
         for (usize l = 1; l < layers.size(); l++)
-            layers[l].construct(layers[l - 1]);
+            layers[l].init(layers[l - 1]);
 
         for (usize l = 1; l < layers.size(); ++l) {
             Layer& layer = layers[l];
