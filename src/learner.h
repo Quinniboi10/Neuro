@@ -8,8 +8,15 @@
 #include "optim.h"
 
 #include <string_view>
+#include <numeric>
 
-struct Trainer {
+struct Learner {
+	Network& net;
+	DataLoader& dataLoader;
+	optimizers::Optimizer& optimizer;
+
+	Learner(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optimizer) : net(net), dataLoader(dataLoader), optimizer(optimizer) {}
+
 	static float mse(const Layer& output, const Target& target) {
 		assert(output.size == target.size());
 
@@ -60,7 +67,7 @@ struct Trainer {
 		return grads;
 	}
 
-	static void applyGradients(const Network& net, optimizers::Optimizer& optim, const usize batchSize, const MultiVector<float, 3>& weightGradAccum, const MultiVector<float, 2>& biasGradAccum) {
+	void applyGradients(const Network& net, optimizers::Optimizer& optim, const usize batchSize, const MultiVector<float, 3>& weightGradAccum, const MultiVector<float, 2>& biasGradAccum) {
 		// Apply gradients to weights and biases
 		for (usize l = 1; l < net.layers.size(); l++) {
 			const Layer& currLayer = net.layers[l];
@@ -72,7 +79,8 @@ struct Trainer {
 		}
 	}
 
-	static void train(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optim, LRSchedule& lrSchedule, usize batchSize, usize epochs) {
+	void learn(LRSchedule& lrSchedule, usize epochs) {
+		const u64 batchSize = dataLoader.batchSize;
 		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
 
 		// Hide cursor
@@ -93,7 +101,7 @@ struct Trainer {
 				DataPoint data = dataLoader.next();
 				net.load(data);
 				net.forwardPass();
-				loss += Trainer::mse(net.layers.back(), data.target);
+				loss += Learner::mse(net.layers.back(), data.target);
 				usize guess = 0, goal = 0;
 				for (usize i = 0; i < data.target.size(); i++) {
 					if (net.layers.back().activated[i] > net.layers.back().activated[guess])
@@ -104,7 +112,7 @@ struct Trainer {
 				numCorrect += (guess == goal);
 			}
 			return std::pair<float, float>{ loss / (testSize ? testSize : 1), numCorrect / static_cast<float>(testSize ? testSize : 1) };
-			};
+		};
 
 		for (usize epoch = 0; epoch < epochs; epoch++) {
 			ProgressBar progressBar{};
@@ -125,7 +133,7 @@ struct Trainer {
 					biasGradAccum.push_back(vector<float>(net.layers[l].size, 0.0f));
 				}
 
-				optim.zeroGrad();
+				optimizer.zeroGrad();
 				dataLoader.loadBatch(batchSize);
 
 				for (usize b = 0; b < batchSize; b++) {
@@ -134,7 +142,7 @@ struct Trainer {
 					net.forwardPass();
 
 					// Accumulate training loss
-					float loss = Trainer::mse(net.layers.back(), data.target);
+					float loss = Learner::mse(net.layers.back(), data.target);
 					trainLossSum += loss;
 
 					// Accumulate training accuracy
@@ -160,9 +168,9 @@ struct Trainer {
 						}
 					}
 				}
-				applyGradients(net, optim, batchSize, weightGradAccum, biasGradAccum);
-				optim.clipGrad(1);
-				optim.step(lrSchedule.lr(epoch));
+				applyGradients(net, optimizer, batchSize, weightGradAccum, biasGradAccum);
+				optimizer.clipGrad(1);
+				optimizer.step(lrSchedule.lr(epoch));
 				batch++;
 
 				// Update trainLoss/trainAcc after each batch

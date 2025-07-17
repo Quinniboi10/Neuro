@@ -21,6 +21,7 @@ struct DataPoint {
 InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h);
 
 struct DataLoader {
+    u64 batchSize;
     float trainSplit;
     u64 numSamples;
     vector<DataPoint> batchData;
@@ -41,7 +42,7 @@ struct ImageDataLoader : DataLoader {
     usize width;
     usize height;
 
-    ImageDataLoader(const string path, usize width, usize height, float trainSplit);
+    ImageDataLoader(const string path, u64 batchSize, float trainSplit, usize width = 0, usize height = 0);
 
     void loadBatch(usize batchSize) override;
 

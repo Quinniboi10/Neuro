@@ -11,7 +11,7 @@ InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h) {
 
     InputLayer vec(w * h);
 
-    if (w == static_cast<usize>(width) && h == static_cast<usize>(height)) {
+    if ((w == static_cast<usize>(width) || w == 0) && (h == static_cast<usize>(height) || h == 0)) {
         for (usize i = 0; i < w * h; i++)
             vec[i] = static_cast<float>(data[i]) / 255;
     }
@@ -32,15 +32,17 @@ InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h) {
     return vec;
 }
 
-ImageDataLoader::ImageDataLoader(const string path, usize width, usize height, float trainSplit) {
+ImageDataLoader::ImageDataLoader(const string path, u64 batchSize, float trainSplit, usize width, usize height) {
+    this->batchSize = batchSize;
+    this->trainSplit = trainSplit;
     this->width = width;
     this->height = height;
+
     cout << "Attempting to open data dir: '" << path << "'" << endl;
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path))
         throw std::runtime_error("Data directory does not exist or is not a directory: " + path);
 
     this->dataDir = path;
-    this->trainSplit = trainSplit;
 
     for (const auto& entry : std::filesystem::directory_iterator(this->dataDir)) {
         if (entry.is_directory())

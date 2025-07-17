@@ -20,6 +20,13 @@ namespace optimizers {
             }
         }
 
+        Optimizer(const Optimizer& other)
+            : net(other.net)
+            , momentum(other.momentum)
+            , weightGradients(other.weightGradients)
+            , biasGradients(other.biasGradients)
+        {}
+
         void zeroGrad() {
             deepFill(weightGradients, 0);
             deepFill(biasGradients, 0);
@@ -60,6 +67,9 @@ namespace optimizers {
         }
 
         virtual void step(float lr) = 0;
+        virtual std::unique_ptr<Optimizer> clone() const = 0;
+
+        virtual ~Optimizer() = default;
     };
 
     struct SGD : Optimizer {
@@ -75,6 +85,12 @@ namespace optimizers {
                 biasVelocities.emplace_back(l.biases.size());
             }
         }
+
+        SGD(const SGD& other)
+            : Optimizer(other),
+                weightVelocities(other.weightVelocities),
+                biasVelocities(other.biasVelocities)
+        {}
 
         inline void step(float lr) override {
             for (usize lIdx = 1; lIdx < net.layers.size(); lIdx++) {
@@ -94,6 +110,10 @@ namespace optimizers {
                 }
             }
         }
+
+        std::unique_ptr<Optimizer> clone() const override {
+            return std::make_unique<SGD>(*this);
+        }
     };
 
     struct RMSprop : Optimizer {
@@ -111,6 +131,14 @@ namespace optimizers {
                 biasSqGrads.emplace_back(l.biases.size());
             }
         }
+
+        RMSprop(const RMSprop& other)
+            : Optimizer(other),
+            beta(other.beta),
+            epsilon(other.epsilon),
+            weightSqGrads(other.weightSqGrads),
+            biasSqGrads(other.biasSqGrads)
+        {}
 
         inline void step(float lr) override {
             for (usize lIdx = 0; lIdx < net.layers.size(); ++lIdx) {
@@ -132,6 +160,10 @@ namespace optimizers {
                     l.biases[i] -= lr * biasGradients[lIdx][i] / (std::sqrt(biasSqGrads[lIdx][i]) + epsilon);
                 }
             }
+        }
+
+        std::unique_ptr<Optimizer> clone() const override {
+            return std::make_unique<RMSprop>(*this);
         }
     };
 
@@ -164,6 +196,19 @@ namespace optimizers {
                 biasVelocities.emplace_back(l.biases.size());
             }
         }
+
+        Adam(const Adam& other)
+            : Optimizer(other),
+            beta1(other.beta1),
+            beta2(other.beta2),
+            epsilon(other.epsilon),
+            decay(other.decay),
+            iteration(other.iteration),
+            weightMomentums(other.weightMomentums),
+            weightVelocities(other.weightVelocities),
+            biasMomentums(other.biasMomentums),
+            biasVelocities(other.biasVelocities)
+        {}
 
         inline void step(float lr) override {
             iteration++;
@@ -203,6 +248,10 @@ namespace optimizers {
                     l.biases[i] -= lr * mHat / (std::sqrt(vHat) + epsilon);
                 }
             }
+        }
+
+        std::unique_ptr<Optimizer> clone() const override {
+            return std::make_unique<Adam>(*this);
         }
     };
 }
