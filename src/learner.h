@@ -79,6 +79,117 @@ struct Learner {
 		}
 	}
 
+	float findLR(float baseLR = 1e-3, float lowerLR = 1e-7, float upperLR = 10, usize numIters = 100, bool allowStopEarly = true) {
+		// Copy the network to not modify the original
+		Network net = this->net;
+		const u64 batchSize = dataLoader.batchSize;
+		const float mult = std::pow(upperLR / lowerLR, 1.0f / numIters);
+		float lr = lowerLR;
+
+		// Track best loss and history
+		float bestLoss = INFINITY;
+		vector<float> lrs, losses;
+		lrs.reserve(numIters);
+		losses.reserve(numIters);
+
+		cout << "Finding best lr" << endl;
+		cout << "Warming up network" << endl;
+
+		lrSchedules::ConstantLR schedule(baseLR);
+		learn(schedule, 1);
+
+		cout << endl;
+		ProgressBar progressBar{};
+
+		// Run over numIters batches
+		for (usize iter = 0; iter < numIters; ++iter) {
+			// Copy the optimizer so each iter has it's own momentum and such
+			auto optimizer = this->optimizer.clone();
+			optimizer->net = net;
+
+			cursor::up();
+			cout << progressBar.report(iter, numIters, 63) << endl;
+
+			// Load one minibatch
+			dataLoader.loadBatch(batchSize);
+
+			// Zero accumulators
+			MultiVector<float, 3> wGradAccum;
+			MultiVector<float, 2> bGradAccum;
+			for (usize l = 1; l < net.layers.size(); ++l) {
+				wGradAccum.push_back(
+					MultiVector<float, 2>(net.layers[l].size,
+						vector<float>(net.layers[l - 1].size, 0.0f))
+				);
+				bGradAccum.push_back(
+					vector<float>(net.layers[l].size, 0.0f)
+				);
+			}
+
+			optimizer->zeroGrad();
+			float batchLoss = 0.0f;
+			usize seen = 0;
+
+			// Loop samples in batch
+			while (dataLoader.hasNext()) {
+				DataPoint dp = dataLoader.next();
+				net.load(dp);
+				net.forwardPass();
+
+				// Accumulate loss
+				float loss = Learner::mse(net.layers.back(), dp.target);
+				batchLoss += loss;
+				seen++;
+
+				// Backprop and accumulate gradients
+				auto grads = Learner::backward(net, dp.target);
+				for (usize l = 1; l < net.layers.size(); ++l) {
+					const Layer& prev = net.layers[l - 1];
+					for (usize i = 0; i < net.layers[l].size; ++i) {
+						for (usize j = 0; j < prev.size; ++j) {
+							wGradAccum[l - 1][i][j] += grads[l][i] * prev.activated[j];
+						}
+						bGradAccum[l - 1][i] += grads[l][i];
+					}
+				}
+			}
+
+			// Apply gradients and step with current lr
+			applyGradients(net, *optimizer, batchSize, wGradAccum, bGradAccum);
+			optimizer->clipGrad(1.0f);
+			optimizer->step(lr);
+
+			// Record
+			float avgLoss = batchLoss / (seen ? seen : 1);
+			lrs.push_back(lr);
+			losses.push_back(avgLoss);
+
+			// Track best lr optional early stop
+			if (avgLoss < bestLoss) bestLoss = avgLoss;
+			if (allowStopEarly && avgLoss > 4 * bestLoss) {
+				std::cout << "LR-Finder stopping at iter=" << iter
+					<< " (loss=" << avgLoss << ")\n";
+				break;
+			}
+
+			// Update lr
+			lr *= mult;
+		}
+
+		cursor::up();
+		cursor::clear();
+		cursor::up();
+		cursor::clear();
+
+		auto minIt = std::min_element(losses.begin(), losses.end());
+		usize minIdx = std::distance(losses.begin(), minIt);
+
+		float bestLR = lrs[minIdx];
+
+		cout << "Estimated best LR: " << bestLR << endl;
+		return bestLR;
+	}
+
 	void learn(LRSchedule& lrSchedule, usize epochs) {
 		const u64 batchSize = dataLoader.batchSize;
 		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
