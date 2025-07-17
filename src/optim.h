@@ -5,13 +5,12 @@
 namespace optimizers {
     struct Optimizer {
         Network& net;
-        float lr;
         float momentum;
 
         MultiVector<float, 3> weightGradients;
         MultiVector<float, 2> biasGradients;
 
-        Optimizer(Network& net, float lr, float momentum = 0.9f) : net(net), lr(lr), momentum(momentum) {
+        Optimizer(Network& net, float momentum = 0.9f) : net(net), momentum(momentum) {
             for (Layer& l : net.layers) {
                 if (!l.weights.empty() && !l.weights[0].empty())
                     weightGradients.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
@@ -60,14 +59,14 @@ namespace optimizers {
             }
         }
 
-        virtual void step() = 0;
+        virtual void step(float lr) = 0;
     };
 
     struct SGD : Optimizer {
         MultiVector<float, 3> weightVelocities;
         MultiVector<float, 2> biasVelocities;
 
-        SGD(Network& net, float lr, float momentum = 0.9f) : Optimizer(net, lr, momentum) {
+        SGD(Network& net, float momentum = 0.9f) : Optimizer(net, momentum) {
             for (Layer& l : net.layers) {
                 if (!l.weights.empty() && !l.weights[0].empty())
                     weightVelocities.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
@@ -77,7 +76,7 @@ namespace optimizers {
             }
         }
 
-        inline void step() override {
+        inline void step(float lr) override {
             for (usize lIdx = 1; lIdx < net.layers.size(); lIdx++) {
                 Layer& l = net.layers[lIdx];
                 // Update weights with momentum
@@ -103,7 +102,7 @@ namespace optimizers {
         MultiVector<float, 3> weightSqGrads;
         MultiVector<float, 2> biasSqGrads;
 
-        RMSprop(Network& net, float lr, float momentum = 0.9f, float beta = 0.9f, float epsilon = 1e-8f) : Optimizer(net, lr, momentum), beta(beta), epsilon(epsilon) {
+        RMSprop(Network& net, float momentum = 0.9f, float beta = 0.9f, float epsilon = 1e-8f) : Optimizer(net, momentum), beta(beta), epsilon(epsilon) {
             for (Layer& l : net.layers) {
                 if (!l.weights.empty() && !l.weights[0].empty())
                     weightSqGrads.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
@@ -113,7 +112,7 @@ namespace optimizers {
             }
         }
 
-        inline void step() override {
+        inline void step(float lr) override {
             for (usize lIdx = 0; lIdx < net.layers.size(); ++lIdx) {
                 Layer& l = net.layers[lIdx];
 
@@ -150,8 +149,8 @@ namespace optimizers {
         MultiVector<float, 2> biasMomentums;
         MultiVector<float, 2> biasVelocities;
 
-        Adam(Network& net, float lr, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f, float decay = 0.01f)
-            : Optimizer(net, lr), beta1(beta1), beta2(beta2), epsilon(epsilon), decay(decay) {
+        Adam(Network& net, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f, float decay = 0.01f)
+            : Optimizer(net), beta1(beta1), beta2(beta2), epsilon(epsilon), decay(decay) {
             for (Layer& l : net.layers) {
                 if (!l.weights.empty() && !l.weights[0].empty()) {
                     weightMomentums.emplace_back(l.weights.size(), vector<float>(l.weights[0].size()));
@@ -166,7 +165,7 @@ namespace optimizers {
             }
         }
 
-        inline void step() override {
+        inline void step(float lr) override {
             iteration++;
             float biasCorr1 = 1.0f - std::pow(beta1, iteration);
             float biasCorr2 = 1.0f - std::pow(beta2, iteration);

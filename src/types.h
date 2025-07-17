@@ -11,10 +11,10 @@
 
 
 #define exit(msg, code) \
-    do { \
+    { \
         std::cout << "**ERROR**  " << msg << std::endl; \
         std::exit(code); \
-    } while(0)
+    }
 
 using u64 = uint64_t;
 using u32 = uint32_t;

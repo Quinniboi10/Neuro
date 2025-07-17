@@ -3,6 +3,7 @@
 #include <fmt/fmt/format.h>
 
 #include "dataloader.h"
+#include "lrschedule.h"
 #include "progbar.h"
 #include "optim.h"
 
@@ -71,7 +72,7 @@ struct Trainer {
 		}
 	}
 
-	static void train(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optim, usize batchSize, usize epochs) {
+	static void train(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optim, LRSchedule& lrSchedule, usize batchSize, usize epochs) {
 		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
 
 		// Hide cursor
@@ -161,7 +162,7 @@ struct Trainer {
 				}
 				applyGradients(net, optim, batchSize, weightGradAccum, biasGradAccum);
 				optim.clipGrad(1);
-				optim.step();
+				optim.step(lrSchedule.lr(epoch));
 				batch++;
 
 				// Update trainLoss/trainAcc after each batch
