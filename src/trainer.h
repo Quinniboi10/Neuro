@@ -188,6 +188,9 @@ struct Trainer {
 			cout << endl;
 		}
 
+		cursor::up();
+		cursor::up();
+
 		// Show cursor
 		cout << "\033[?25h";
 	}

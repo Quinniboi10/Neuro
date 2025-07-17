@@ -12,6 +12,8 @@ struct Network {
 		layers[1] = Layer(outputSize, outputActivation);
 	}
 
+    explicit Network(const vector<Layer>& layers) : layers(layers) {}
+
     void init(const bool useXavierInit = true) {
         std::random_device rd;
         std::mt19937 gen(rd());
