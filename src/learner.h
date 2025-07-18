@@ -73,8 +73,16 @@ struct Learner {
 		for (usize l = 1; l < net.layers.size(); l++) {
 			const Layer& currLayer = net.layers[l];
 			for (usize i = 0; i < currLayer.size; i++) {
-				for (usize j = 0; j < currLayer.weights[i].size(); j++)
+				for (usize j = 0; j < currLayer.weights[i].size(); j++) {
+					assert(l - 1 < weightGradAccum.size());
+					assert(i < weightGradAccum[l - 1].size());
+					assert(j < weightGradAccum[l - 1][i].size());
+					assert(l < optim.weightGradients.size());
+					assert(i < optim.weightGradients[l].size());
+					assert(j < optim.weightGradients[l][i].size());
+
 					optim.weightGradients[l][i][j] += weightGradAccum[l - 1][i][j] / batchSize;
+				}
 				optim.biasGradients[l][i] += biasGradAccum[l - 1][i] / batchSize;
 			}
 		}
@@ -104,7 +112,7 @@ struct Learner {
 			float loss = 0;
 			usize numCorrect = 0;
 			dataLoader.loadTestSet();
-			usize testSize = dataLoader.batchData.size();
+			usize testSize = dataLoader.batchData().size();
 			while (dataLoader.hasNext()) {
 				DataPoint data = dataLoader.next();
 				net.load(data);
@@ -123,6 +131,8 @@ struct Learner {
 		};
 
 		for (usize epoch = 0; epoch < epochs; epoch++) {
+			dataLoader.asyncPreloadoadBatch(batchSize);
+
 			ProgressBar progressBar{};
 
 			u64 batch = 0;
@@ -134,23 +144,26 @@ struct Learner {
 			while (batch < batchesPerEpoch) {
 				MultiVector<float, 3> weightGradAccum;
 				MultiVector<float, 2> biasGradAccum;
+
 				for (usize l = 1; l < net.layers.size(); l++) {
-					weightGradAccum.push_back(
-						vector<vector<float>>(net.layers[l].size, vector<float>(net.layers[l - 1].size, 0.0f))
-					);
-					biasGradAccum.push_back(vector<float>(net.layers[l].size, 0.0f));
+					weightGradAccum.push_back(MultiVector<float, 2>(net.layers[l].weights.size(), vector<float>(net.layers[l].weights[0].size(), 0.0f)));
+					biasGradAccum.push_back(vector<float>(net.layers[l].biases.size(), 0.0f));
 				}
 
 				optimizer.zeroGrad();
 
-				dataLoader.loadBatch(batchSize);
-
 				// Gradient mutex
 				std::mutex gradMut;
 
+				dataLoader.waitForBatch();
+				dataLoader.swapBuffers();
+
+				// Start async loading the next batch's data into the buffer as soon as possible
+				dataLoader.asyncPreloadoadBatch(batchSize);
+
 				#pragma omp parallel for num_threads(threads) reduction(+:trainLossSum, trainCorrect, trainTotal) firstprivate(net)
 				for (usize idx = 0; idx < batchSize; idx++) {
-					DataPoint data = dataLoader.batchData[idx];
+					DataPoint data = dataLoader.batchData()[idx];
 					net.load(data);
 					net.forwardPass();
 
@@ -183,6 +196,7 @@ struct Learner {
 					}
 					gradMut.unlock();
 				}
+
 				applyGradients(net, optimizer, batchSize, weightGradAccum, biasGradAccum);
 				optimizer.clipGrad(1);
 				optimizer.step(lrSchedule.lr(epoch));
@@ -195,7 +209,9 @@ struct Learner {
 				cursor::up();
 				cursor::up();
 				cursor::begin();
+				cursor::clear();
 				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << "\n";
+				cursor::clear();
 				cout << progressBar.report(batch, batchesPerEpoch, 63) << endl;
 			}
 

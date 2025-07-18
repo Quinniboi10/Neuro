@@ -68,8 +68,8 @@ ImageDataLoader::ImageDataLoader(const string path, u64 batchSize, float trainSp
     cout << "Using train to test ratio of " << trainSplit / (1 - trainSplit) << " with approximately " << formatNum(numSamples * trainSplit) << " train samples and " << formatNum(numSamples * (1 - trainSplit)) << " test samples" << endl;
 }
 
-void ImageDataLoader::loadBatch(usize batchSize) {
-    batchData.clear();
+void ImageDataLoader::loadBatch(usize batchSize, usize batchIdx) {
+    data[batchIdx].clear();
 
     if (types.empty())
         throw std::runtime_error("No types found in data dir: " + dataDir);
@@ -102,13 +102,13 @@ void ImageDataLoader::loadBatch(usize batchSize) {
         target[typeIdx] = 1;
 
         dataMut.lock();
-        batchData.emplace_back(input, target);
+        data[batchIdx].emplace_back(input, target);
         dataMut.unlock();
     }
 }
 
 void ImageDataLoader::loadTestSet() {
-    batchData.clear();
+    data[currBatch].clear();
 
     if (types.empty())
         throw std::runtime_error("No types found in data dir: " + dataDir);
@@ -126,19 +126,19 @@ void ImageDataLoader::loadTestSet() {
                 Target target(types.size());
                 target[typeIdx] = 1;
 
-                batchData.emplace_back(input, target);
+                data[currBatch].emplace_back(input, target);
             }
         }
     }
 }
 
 bool ImageDataLoader::hasNext() const {
-    return batchData.size() > 0;
+    return data[currBatch].size() > 0;
 }
 
 DataPoint ImageDataLoader::next() {
     assert(hasNext());
-    const DataPoint data = batchData.back();
-    batchData.pop_back();
-    return data;
+    const DataPoint dataPoint = data[currBatch].back();
+    data[currBatch].pop_back();
+    return dataPoint;
 }

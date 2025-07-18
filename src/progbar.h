@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stopwatch.h"
+#include "util.h"
 
 struct ProgressBar {
     Stopwatch<std::chrono::milliseconds> start;
@@ -22,7 +23,9 @@ struct ProgressBar {
         }
         out << "\u258F";
 
-        out << fmt::format(" {}/{} at {:.2f} iters/sec", progress, total, static_cast<float>(progress) / start.elapsed() * 1000);
+        u64 msRemaining = start.elapsed() * total / progress - start.elapsed();
+
+        out << fmt::format(" {}/{} at {:.2f} per sec with {} remaining", progress, total, static_cast<float>(progress) / start.elapsed() * 1000, formatTime(msRemaining));
 
         return out.str();
     }

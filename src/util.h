@@ -49,3 +49,24 @@ inline string formatNum(i64 v) {
 
 	return s;
 }
+
+// Formats a time
+inline string formatTime(u64 timeInMS) {
+	long long seconds = timeInMS / 1000;
+	long long hours = seconds / 3600;
+	seconds %= 3600;
+	long long minutes = seconds / 60;
+	seconds %= 60;
+
+	string result;
+
+	if (hours > 0)
+		result += std::to_string(hours) + "h ";
+	if (minutes > 0 || hours > 0)
+		result += std::to_string(minutes) + "m ";
+	if (seconds > 0 || minutes > 0 || hours > 0)
+		result += std::to_string(seconds) + "s";
+	if (result == "")
+		return std::to_string(timeInMS) + "ms";
+	return result;
+}

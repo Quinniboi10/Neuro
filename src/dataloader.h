@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <future>
 #include <random>
 
 struct DataPoint {
@@ -24,27 +25,48 @@ struct DataLoader {
     u64 threads;
     u64 batchSize;
     float trainSplit;
+
     u64 numSamples;
-    vector<DataPoint> batchData;
+
+    usize currBatch;
+    std::future<void> dataFuture;
+    array<vector<DataPoint>, 2> data;
 
     DataLoader(u64 batchSize, float trainSplit, u64 threads) {
         this->batchSize = batchSize;
         this->trainSplit = trainSplit;
+        this->currBatch = 0;
 
-        if (threads == 0)
-            threads = std::thread::hardware_concurrency();
-        if (threads == 0) {
-            cerr << "Failed to detect number of threads" << endl;
-            threads = 1;
-        }
+        data[0].reserve(batchSize);
+        data[1].reserve(batchSize);
 
         this->threads = threads;
     }
 
-    virtual void loadBatch(usize batchSize) = 0;
+    // Loads batch into other buffer
+    virtual void loadBatch(usize batchSize, usize batchIdx) = 0;
     virtual void loadTestSet() = 0;
     virtual bool hasNext() const = 0;
     virtual DataPoint next() = 0;
+
+    // Attempts to load data asynchronously if threads > 0
+    virtual void asyncPreloadoadBatch(usize batchSize) {
+        dataFuture = std::async(threads > 0 ? std::launch::async : std::launch::deferred, [this, batchSize]() { this->loadBatch(batchSize, currBatch ^ 1); });
+    }
+
+    virtual void waitForBatch() {
+        if (dataFuture.valid())
+            dataFuture.get();
+    }
+
+    virtual vector<DataPoint>& batchData() {
+        return data[currBatch];
+    }
+
+    virtual void swapBuffers() {
+        currBatch ^= 1;
+    }
+
     virtual ~DataLoader() = default;
 };
 
@@ -59,7 +81,7 @@ struct ImageDataLoader : DataLoader {
 
     ImageDataLoader(const string path, u64 batchSize, float trainSplit, u64 threads = 0, usize width = 0, usize height = 0);
 
-    void loadBatch(usize batchSize) override;
+    void loadBatch(usize batchSize, usize batchIdx) override;
 
     void loadTestSet() override;
 
