@@ -3,9 +3,9 @@
 #include "layer.h"
 #include "util.h"
 
-#include <compare>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <random>
 
 struct DataPoint {
@@ -21,10 +21,25 @@ struct DataPoint {
 InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h);
 
 struct DataLoader {
+    u64 threads;
     u64 batchSize;
     float trainSplit;
     u64 numSamples;
     vector<DataPoint> batchData;
+
+    DataLoader(u64 batchSize, float trainSplit, u64 threads) {
+        this->batchSize = batchSize;
+        this->trainSplit = trainSplit;
+
+        if (threads == 0)
+            threads = std::thread::hardware_concurrency();
+        if (threads == 0) {
+            cerr << "Failed to detect number of threads" << endl;
+            threads = 1;
+        }
+
+        this->threads = threads;
+    }
 
     virtual void loadBatch(usize batchSize) = 0;
     virtual void loadTestSet() = 0;
@@ -42,7 +57,7 @@ struct ImageDataLoader : DataLoader {
     usize width;
     usize height;
 
-    ImageDataLoader(const string path, u64 batchSize, float trainSplit, usize width = 0, usize height = 0);
+    ImageDataLoader(const string path, u64 batchSize, float trainSplit, u64 threads = 0, usize width = 0, usize height = 0);
 
     void loadBatch(usize batchSize) override;
 

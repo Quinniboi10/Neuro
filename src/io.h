@@ -30,7 +30,7 @@ static inline Network loadWeights(const string path) {
     std::ifstream file(path, std::ios::binary);
 
     if (!file)
-        exit("File not found " + path, -1);
+        exitWithMsg("File not found " + path, -1);
 
     // Lambda for reading data, file by reference
     const auto read = [&file](auto* ptr, size_t size) {

@@ -15,7 +15,7 @@ endif
 
 # Compiler and flags
 CXX      := clang++
-CXXFLAGS := -O3 -march=native -fno-finite-math-only -funroll-loops -flto -std=c++20 -DNDEBUG
+CXXFLAGS := -O3 -march=native -fopenmp -fno-finite-math-only -funroll-loops -flto -std=c++20 -DNDEBUG
 
 IS_ARM := $(filter ARM arm64 aarch64 arm%,$(ARCH))
 
@@ -41,13 +41,13 @@ $(EXE): $(SRCS)
 # Debug build
 .PHONY: debug
 debug: clean
-debug: CXXFLAGS = -O3 -ggdb -march=native -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -fuse-ld=lld -fno-finite-math-only -flto -std=c++20 -Wall -Wextra
+debug: CXXFLAGS = -O3 -ggdb -march=native -fopenmp -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -fuse-ld=lld -fno-finite-math-only -flto -std=c++20 -Wall -Wextra
 debug: all
 
 # Debug build
 .PHONY: profile
 profile: clean
-profile: CXXFLAGS = -O2 -ggdb -march=native -fno-finite-math-only -funroll-loops -flto -std=c++20 -fno-omit-frame-pointer -fuse-ld=lld -DNDEBUG
+profile: CXXFLAGS = -O2 -ggdb -march=native -fopenmp -fno-finite-math-only -funroll-loops -flto -std=c++20 -fno-omit-frame-pointer -fuse-ld=lld -DNDEBUG
 profile: all
 
 # Force rebuild

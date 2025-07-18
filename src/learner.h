@@ -9,6 +9,7 @@
 
 #include <string_view>
 #include <numeric>
+#include <mutex>
 
 struct Learner {
 	Network& net;
@@ -79,7 +80,14 @@ struct Learner {
 		}
 	}
 
-	void learn(LRSchedule& lrSchedule, usize epochs) {
+	void learn(LRSchedule& lrSchedule, usize epochs, usize threads = 0) {
+		if (threads == 0)
+			threads = std::thread::hardware_concurrency();
+		if (threads == 0) {
+			cerr << "Failed to detect number of threads" << endl;
+			threads = 1;
+		}
+
 		const u64 batchSize = dataLoader.batchSize;
 		u64 batchesPerEpoch = dataLoader.numSamples / batchSize;
 
@@ -134,10 +142,15 @@ struct Learner {
 				}
 
 				optimizer.zeroGrad();
+
 				dataLoader.loadBatch(batchSize);
 
-				for (usize b = 0; b < batchSize; b++) {
-					DataPoint data = dataLoader.next();
+				// Gradient mutex
+				std::mutex gradMut;
+
+				#pragma omp parallel for num_threads(threads) reduction(+:trainLossSum, trainCorrect, trainTotal) firstprivate(net)
+				for (usize idx = 0; idx < batchSize; idx++) {
+					DataPoint data = dataLoader.batchData[idx];
 					net.load(data);
 					net.forwardPass();
 
@@ -154,9 +167,10 @@ struct Learner {
 							goal = i;
 					}
 					trainCorrect += (guess == goal);
-					trainTotal += 1;
+					trainTotal++;
 
 					// Backward + accumulate gradients
+					gradMut.lock();
 					auto gradients = backward(net, data.target);
 					for (usize l = 1; l < net.layers.size(); l++) {
 						const Layer& prevLayer = net.layers[l - 1];
@@ -167,6 +181,7 @@ struct Learner {
 							biasGradAccum[l - 1][i] += gradients[l][i];
 						}
 					}
+					gradMut.unlock();
 				}
 				applyGradients(net, optimizer, batchSize, weightGradAccum, biasGradAccum);
 				optimizer.clipGrad(1);

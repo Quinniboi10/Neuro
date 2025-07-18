@@ -3,6 +3,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "../external/stb_image.h"
 
+#include <mutex>
+
 InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h) {
     int width, height, channels;
     unsigned char* data = stbi_load(path.data(), &width, &height, &channels, 1);
@@ -32,9 +34,9 @@ InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h) {
     return vec;
 }
 
-ImageDataLoader::ImageDataLoader(const string path, u64 batchSize, float trainSplit, usize width, usize height) {
-    this->batchSize = batchSize;
-    this->trainSplit = trainSplit;
+ImageDataLoader::ImageDataLoader(const string path, u64 batchSize, float trainSplit, u64 threads, usize width, usize height)
+        : DataLoader(batchSize, trainSplit, threads)
+    {
     this->width = width;
     this->height = height;
 
@@ -72,6 +74,9 @@ void ImageDataLoader::loadBatch(usize batchSize) {
     if (types.empty())
         throw std::runtime_error("No types found in data dir: " + dataDir);
 
+    std::mutex dataMut;
+
+    #pragma omp parallel for num_threads(threads)
     for (usize i = 0; i < batchSize; i++) {
         // Randomly pick a type
         std::uniform_int_distribution<usize> typeDist(0, types.size() - 1);
@@ -96,7 +101,9 @@ void ImageDataLoader::loadBatch(usize batchSize) {
         Target target(types.size());
         target[typeIdx] = 1;
 
+        dataMut.lock();
         batchData.emplace_back(input, target);
+        dataMut.unlock();
     }
 }
 

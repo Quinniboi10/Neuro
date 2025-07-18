@@ -10,7 +10,7 @@
 #include <array>
 
 
-#define exit(msg, code) \
+#define exitWithMsg(msg, code) \
     { \
         std::cout << "**ERROR**  " << msg << std::endl; \
         std::exit(code); \
@@ -151,7 +151,7 @@ namespace activations {
         case SOFTPLUS: return dsoftplus(f);
         case GAUSSIAN: return dgaussian(f);
         case NONE:     return f;
-        default: exit("Unsupported activation on non-output layer: " + activNames[act], -1);
+        default: exitWithMsg("Unsupported activation on non-output layer: " + activNames[act], -1);
         }
     }
 }
