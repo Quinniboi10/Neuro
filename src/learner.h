@@ -10,6 +10,7 @@
 #include <string_view>
 #include <numeric>
 #include <mutex>
+#include <omp.h>
 
 struct Learner {
 	Network& net;
@@ -130,6 +131,33 @@ struct Learner {
 			return std::pair<float, float>{ loss / (testSize ? testSize : 1), numCorrect / static_cast<float>(testSize ? testSize : 1) };
 		};
 
+		MultiVector<float, 3> weightGradAccum;
+		MultiVector<float, 2> biasGradAccum;
+
+		MultiVector<float, 4> threadWeightGradAccum;
+		MultiVector<float, 3> threadBiasGradAccum;
+		vector<Network> networks;
+
+		vector<float> losses;
+
+		weightGradAccum.reserve(net.layers.size());
+		biasGradAccum.reserve(net.layers.size());
+
+		threadWeightGradAccum.reserve(threads);
+		threadBiasGradAccum.reserve(threads);
+		networks.reserve(threads);
+
+		for (usize l = 1; l < net.layers.size(); l++) {
+			weightGradAccum.push_back(MultiVector<float, 2>(net.layers[l].weights.size(), vector<float>(net.layers[l].weights[0].size(), 0.0f)));
+			biasGradAccum.push_back(vector<float>(net.layers[l].biases.size(), 0.0f));
+		}
+
+		for (usize t = 0; t < threads; t++) {
+			threadWeightGradAccum.push_back(weightGradAccum);
+			threadBiasGradAccum.push_back(biasGradAccum);
+			networks.push_back(net);
+		}
+
 		for (usize epoch = 0; epoch < epochs; epoch++) {
 			dataLoader.asyncPreloadoadBatch(batchSize);
 
@@ -142,18 +170,18 @@ struct Learner {
 			usize trainTotal = 0;
 
 			while (batch < batchesPerEpoch) {
-				MultiVector<float, 3> weightGradAccum;
-				MultiVector<float, 2> biasGradAccum;
+				deepFill(weightGradAccum, 0);
+				deepFill(biasGradAccum, 0);
 
-				for (usize l = 1; l < net.layers.size(); l++) {
-					weightGradAccum.push_back(MultiVector<float, 2>(net.layers[l].weights.size(), vector<float>(net.layers[l].weights[0].size(), 0.0f)));
-					biasGradAccum.push_back(vector<float>(net.layers[l].biases.size(), 0.0f));
-				}
+				deepFill(threadWeightGradAccum, 0);
+				deepFill(threadBiasGradAccum, 0);
+
+				deepFill(networks, net);
 
 				optimizer.zeroGrad();
 
-				// Gradient mutex
-				std::mutex gradMut;
+				// Dataloader mutex
+				std::mutex dlMut;
 
 				dataLoader.waitForBatch();
 				dataLoader.swapBuffers();
@@ -161,9 +189,15 @@ struct Learner {
 				// Start async loading the next batch's data into the buffer as soon as possible
 				dataLoader.asyncPreloadoadBatch(batchSize);
 
-				#pragma omp parallel for num_threads(threads) reduction(+:trainLossSum, trainCorrect, trainTotal) firstprivate(net)
+				#pragma omp parallel for num_threads(threads) reduction(+:trainLossSum, trainCorrect, trainTotal)
 				for (usize idx = 0; idx < batchSize; idx++) {
+					usize tID = omp_get_thread_num();
+
+					Network& net = networks[tID];
+
+					dlMut.lock();
 					DataPoint data = dataLoader.batchData()[idx];
+					dlMut.unlock();
 					net.load(data);
 					net.forwardPass();
 
@@ -183,18 +217,28 @@ struct Learner {
 					trainTotal++;
 
 					// Backward + accumulate gradients
-					gradMut.lock();
 					auto gradients = backward(net, data.target);
 					for (usize l = 1; l < net.layers.size(); l++) {
 						const Layer& prevLayer = net.layers[l - 1];
 						for (usize i = 0; i < net.layers[l].size; i++) {
 							for (usize j = 0; j < prevLayer.size; j++) {
-								weightGradAccum[l - 1][i][j] += gradients[l][i] * prevLayer.activated[j];
+								threadWeightGradAccum[tID][l - 1][i][j] += gradients[l][i] * prevLayer.activated[j];
 							}
-							biasGradAccum[l - 1][i] += gradients[l][i];
+							threadBiasGradAccum[tID][l - 1][i] += gradients[l][i];
 						}
 					}
-					gradMut.unlock();
+				}
+
+				// Accumulate
+				for (usize t = 0; t < threads; t++) {
+					for (usize l = 1; l < net.layers.size(); l++) {
+						for (usize i = 0; i < net.layers[l].size; i++) {
+							for (usize j = 0; j < net.layers[l - 1].size; j++) {
+								weightGradAccum[l - 1][i][j] += threadWeightGradAccum[t][l - 1][i][j];
+							}
+							biasGradAccum[l - 1][i] += threadBiasGradAccum[t][l - 1][i];
+						}
+					}
 				}
 
 				applyGradients(net, optimizer, batchSize, weightGradAccum, biasGradAccum);
@@ -209,10 +253,8 @@ struct Learner {
 				cursor::up();
 				cursor::up();
 				cursor::begin();
-				cursor::clear();
-				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << "\n";
-				cursor::clear();
-				cout << progressBar.report(batch, batchesPerEpoch, 63) << endl;
+				cout << fmt::format("{:>5L}{:>14.5f}{:>13}{:>18.2f}%{:>18}", epoch, trainLoss, "Pending", trainAcc * 100, "Pending") << endl;
+				cout << progressBar.report(batch, batchesPerEpoch, 63) << "      " << endl;
 			}
 
 			float trainLoss = trainLossSum / (trainTotal ? trainTotal : 1);
