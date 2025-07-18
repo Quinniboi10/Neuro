@@ -11,21 +11,21 @@ InputLayer loadGreyscaleImage(const std::string& path, usize w, usize h) {
     if (!data)
         throw std::runtime_error("Failed to load image: " + path);
 
-    InputLayer vec(w * h);
+    InputLayer vec(width * height);
 
     if ((w == static_cast<usize>(width) || w == 0) && (h == static_cast<usize>(height) || h == 0)) {
-        for (usize i = 0; i < w * h; i++)
+        for (usize i = 0; i < width * height; i++)
             vec[i] = static_cast<float>(data[i]) / 255;
     }
     else {
         // Simple nearest-neighbor resize
         for (usize y = 0; y < h; ++y) {
             for (usize x = 0; x < w; ++x) {
-                int src_x = x * width / w;
-                int src_y = y * height / h;
-                int src_idx = src_y * width + src_x;
-                int dst_idx = y * w + x;
-                vec[dst_idx] = static_cast<float>(data[src_idx]) / 255;
+                int sourceX = x * width / w;
+                int sourceY = y * height / h;
+                int sourceIdx = sourceY * width + sourceX;
+                int destIdx = y * w + x;
+                vec[destIdx] = static_cast<float>(data[sourceIdx]) / 255;
             }
         }
     }
