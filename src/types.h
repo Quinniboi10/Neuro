@@ -42,6 +42,10 @@ using std::cerr;
 using std::cout;
 using std::endl;
 
+using InputLayer = vector<float>;
+using Target = vector<float>;
+using Gradient = vector<float>;
+
 enum Activation : i16 {
     TANH,
     RELU,
@@ -53,7 +57,7 @@ enum Activation : i16 {
     FSIGMOID,
     SOFTPLUS,
     GAUSSIAN,
-    NONE,
+    NO_ACTIVATION,
     NUM_ACTIVATIONS
 };
 
@@ -113,6 +117,18 @@ namespace activations {
         return values;
     }
 
+    inline Gradient dsoftmax(const Gradient& upstreamGrad, const vector<float>& softmaxOut) {
+        usize n = softmaxOut.size();
+        float dot = 0;
+        for (usize i = 0; i < n; ++i)
+            dot += softmaxOut[i] * upstreamGrad[i];
+
+        Gradient grad(n);
+        for (usize i = 0; i < n; ++i)
+            grad[i] = softmaxOut[i] * (upstreamGrad[i] - dot);
+        return grad;
+    }
+
     inline vector<float> activate(Activation act, const vector<float>& vec) {
         vector<float> out(vec.size());
 
@@ -132,7 +148,7 @@ namespace activations {
             case FSIGMOID: out[i] = fsigmoid(vec[i]); break;
             case SOFTPLUS: out[i] = softplus(vec[i]); break;
             case GAUSSIAN: out[i] = gaussian(vec[i]); break;
-            case NONE:     out[i] = vec[i]; break;
+            case NO_ACTIVATION:     out[i] = vec[i]; break;
             default: break;
             }
         }
@@ -150,7 +166,7 @@ namespace activations {
         case FSIGMOID: return dfsigmoid(f);
         case SOFTPLUS: return dsoftplus(f);
         case GAUSSIAN: return dgaussian(f);
-        case NONE:     return f;
+        case NO_ACTIVATION:     return f;
         default: exitWithMsg("Unsupported activation on non-output layer: " + activNames[act], -1);
         }
     }
@@ -192,7 +208,5 @@ using MultiArray = typename internal::MultiArrayImpl<T, kNs...>::Type;
 template <typename T, std::size_t D>
 using MultiVector = typename internal::MultiVectorImpl<T, D>::Type;
 
-using InputLayer = vector<float>;
-using Target = vector<float>;
 struct Layer;
 struct Network;

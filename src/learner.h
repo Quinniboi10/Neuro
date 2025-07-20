@@ -6,6 +6,7 @@
 #include "lrschedule.h"
 #include "progbar.h"
 #include "optim.h"
+#include "loss.h"
 
 #include <string_view>
 #include <numeric>
@@ -16,45 +17,26 @@ struct Learner {
 	Network& net;
 	DataLoader& dataLoader;
 	optimizers::Optimizer& optimizer;
+	Loss lossFunc;
 
-	Learner(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optimizer) : net(net), dataLoader(dataLoader), optimizer(optimizer) {}
+	Learner(Network& net, DataLoader& dataLoader, optimizers::Optimizer& optimizer, Loss lossFunc = MSE) : net(net), dataLoader(dataLoader), optimizer(optimizer), lossFunc(lossFunc) {}
 
-	static float mse(const Layer& output, const Target& target) {
-		assert(output.size == target.size());
-
-		float loss = 0;
-
-		for (usize i = 0; i < output.size; i++) {
-			assert(std::isfinite(output.activated[i] - target[i]));
-			loss += std::pow<float>(output.activated[i] - target[i], 2);
-		}
-
-		return loss / output.size;
-	}
-
-	static Grad mseDeriv(const Layer& output, const Target& target) {
-		assert(output.size == target.size());
-
-		Grad grad;
-		grad.resize(output.size);
-
-		for (usize i = 0; i < output.size; i++) {
-			assert(std::isfinite(output.activated[i] - target[i]));
-			grad[i] = 2 * (output.activated[i] - target[i]) / output.size;
-		}
-
-		return grad;
-	}
-
-	static vector<Grad> backward(const Network& net, const Target& target) {
-		vector<Grad> grads(net.layers.size());
+	vector<Gradient> backward(const Network& net, const Target& target) {
+		vector<Gradient> grads(net.layers.size());
 		for (usize l = 0; l < net.layers.size(); ++l)
 			grads[l].resize(net.layers[l].size);
 
-		// Output layer gradient: dL/dA
-		grads.back() = mseDeriv(net.layers.back(), target);
+		// Output layer gradient
+		grads.back() = lossDeriv(lossFunc, net.layers.back(), target);
+		if (net.layers.back().activation == SOFTMAX)
+			grads.back() = activations::dsoftmax(grads.back(), net.layers.back().activated);
+		else {
+			grads.back().resize(net.layers.back().size);
+			for (usize i = 0; i < net.layers.back().size; i++)
+				grads.back()[i] = grads.back()[i] * activations::derivActivate(net.layers.back().activation, net.layers.back().activated[i]);
+		}
 
-		// Hidden layers: Backpropagate error
+		// Hidden layer gradients
 		for (int l = net.layers.size() - 2; l > 0; --l) {
 			const Layer& currLayer = net.layers[l];
 			const Layer& nextLayer = net.layers[l + 1];
@@ -118,7 +100,7 @@ struct Learner {
 				DataPoint data = dataLoader.next();
 				net.load(data);
 				net.forwardPass();
-				loss += Learner::mse(net.layers.back(), data.target);
+				loss += getLoss(lossFunc, net.layers.back(), data.target);
 				usize guess = 0, goal = 0;
 				for (usize i = 0; i < data.target.size(); i++) {
 					if (net.layers.back().activated[i] > net.layers.back().activated[guess])
@@ -202,7 +184,7 @@ struct Learner {
 					net.forwardPass();
 
 					// Accumulate training loss
-					float loss = Learner::mse(net.layers.back(), data.target);
+					float loss = getLoss(lossFunc, net.layers.back(), data.target);
 					trainLossSum += loss;
 
 					// Accumulate training accuracy
